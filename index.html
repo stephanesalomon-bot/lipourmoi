@@ -1,0 +1,675 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="theme-color" content="#0d0d1a" />
+  <link rel="manifest" href="manifest.json" />
+  <title>LIPOURMOI</title>
+
+  <!-- Tesseract.js OCR -->
+  <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+
+  <style>
+    /* ============================================================
+       RESET & BASE
+    ============================================================ */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:        #0d0d1a;
+      --surface:   #1a1a2e;
+      --accent:    #FFD700;
+      --accent2:   #FF8C00;
+      --text:      #FFFFFF;
+      --muted:     #aaaacc;
+      --danger:    #ff4d4d;
+      --success:   #44dd88;
+      --radius:    20px;
+      --shadow:    0 8px 32px rgba(0,0,0,0.6);
+    }
+
+    html, body {
+      height: 100%;
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'Segoe UI', Arial, sans-serif;
+      font-size: 20px;
+      line-height: 1.5;
+      overflow-x: hidden;
+    }
+
+    /* ============================================================
+       LAYOUT
+    ============================================================ */
+    .app {
+      display: flex;
+      flex-direction: column;
+      min-height: 100vh;
+      max-width: 600px;
+      margin: 0 auto;
+      padding: 24px 16px;
+      gap: 20px;
+    }
+
+    /* ============================================================
+       HEADER
+    ============================================================ */
+    header {
+      text-align: center;
+    }
+
+    .logo {
+      font-size: 2.8rem;
+      font-weight: 900;
+      letter-spacing: 3px;
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      text-shadow: none;
+    }
+
+    .tagline {
+      font-size: 1rem;
+      color: var(--muted);
+      margin-top: 4px;
+    }
+
+    /* ============================================================
+       STATUS CARD
+    ============================================================ */
+    .status-card {
+      background: var(--surface);
+      border-radius: var(--radius);
+      padding: 20px 24px;
+      text-align: center;
+      min-height: 90px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      border: 2px solid transparent;
+      transition: border-color 0.3s;
+      box-shadow: var(--shadow);
+    }
+
+    .status-card.processing { border-color: var(--accent); }
+    .status-card.reading    { border-color: var(--success); }
+    .status-card.error      { border-color: var(--danger); }
+
+    .status-icon {
+      font-size: 2.2rem;
+    }
+
+    .status-text {
+      font-size: 1.15rem;
+      font-weight: 600;
+    }
+
+    /* Spinner */
+    .spinner {
+      width: 40px; height: 40px;
+      border: 4px solid rgba(255,215,0,0.2);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.9s linear infinite;
+      display: none;
+    }
+    .spinner.active { display: block; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* Progress bar */
+    .progress-bar-wrap {
+      width: 100%;
+      background: rgba(255,255,255,0.1);
+      border-radius: 99px;
+      height: 8px;
+      display: none;
+      overflow: hidden;
+    }
+    .progress-bar-wrap.active { display: block; }
+    .progress-bar {
+      height: 100%;
+      background: linear-gradient(90deg, var(--accent), var(--accent2));
+      border-radius: 99px;
+      width: 0%;
+      transition: width 0.3s;
+    }
+
+    /* ============================================================
+       TEXT BOX
+    ============================================================ */
+    .text-box {
+      background: var(--surface);
+      border-radius: var(--radius);
+      padding: 20px 24px;
+      font-size: 1.2rem;
+      color: var(--text);
+      max-height: 260px;
+      overflow-y: auto;
+      display: none;
+      border: 2px solid rgba(255,215,0,0.25);
+      box-shadow: var(--shadow);
+      scroll-behavior: smooth;
+    }
+    .text-box.visible { display: block; }
+    .text-box p { margin-bottom: 12px; }
+
+    /* Highlight current word */
+    .word-highlight {
+      background: rgba(255,215,0,0.3);
+      border-radius: 4px;
+      padding: 0 2px;
+      transition: background 0.1s;
+    }
+
+    /* ============================================================
+       MAIN CAPTURE BUTTON
+    ============================================================ */
+    .capture-area {
+      display: flex;
+      justify-content: center;
+    }
+
+    .btn-capture {
+      position: relative;
+      width: 190px; height: 190px;
+      border-radius: 50%;
+      border: none;
+      cursor: pointer;
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      color: #0d0d1a;
+      font-size: 1.1rem;
+      font-weight: 800;
+      letter-spacing: 1px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      box-shadow: 0 0 0 8px rgba(255,215,0,0.15), var(--shadow);
+      transition: transform 0.15s, box-shadow 0.15s;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    .btn-capture:active {
+      transform: scale(0.94);
+      box-shadow: 0 0 0 4px rgba(255,215,0,0.15);
+    }
+
+    .btn-capture .cam-icon {
+      font-size: 3rem;
+      line-height: 1;
+    }
+
+    .btn-capture span {
+      font-size: 1rem;
+      text-align: center;
+      padding: 0 12px;
+    }
+
+    /* Pulse ring animation when idle */
+    .btn-capture::after {
+      content: '';
+      position: absolute;
+      width: 100%; height: 100%;
+      border-radius: 50%;
+      border: 3px solid rgba(255,215,0,0.4);
+      animation: pulse-ring 2s ease-out infinite;
+    }
+    @keyframes pulse-ring {
+      0%   { transform: scale(1);   opacity: 0.8; }
+      100% { transform: scale(1.35); opacity: 0; }
+    }
+
+    /* Hidden file input */
+    #file-input { display: none; }
+
+    /* ============================================================
+       CONTROLS
+    ============================================================ */
+    .controls {
+      display: none;
+      flex-wrap: wrap;
+      gap: 12px;
+      justify-content: center;
+    }
+    .controls.visible { display: flex; }
+
+    .btn {
+      padding: 16px 22px;
+      border-radius: var(--radius);
+      border: none;
+      cursor: pointer;
+      font-size: 1.05rem;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex: 1 1 130px;
+      justify-content: center;
+      transition: transform 0.12s, opacity 0.12s;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .btn:active { transform: scale(0.95); opacity: 0.85; }
+
+    .btn-pause  { background: #2a2a4a; color: var(--accent);  border: 2px solid var(--accent); }
+    .btn-stop   { background: #2a0a0a; color: var(--danger);  border: 2px solid var(--danger); }
+    .btn-replay { background: #0a2a1a; color: var(--success); border: 2px solid var(--success); }
+
+    /* Speed selector */
+    .speed-row {
+      width: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+    }
+    .speed-label {
+      color: var(--muted);
+      font-size: 0.95rem;
+    }
+    .speed-btns {
+      display: flex;
+      gap: 8px;
+    }
+    .btn-speed {
+      width: 52px; height: 42px;
+      border-radius: 12px;
+      border: 2px solid rgba(255,255,255,0.2);
+      background: var(--surface);
+      color: var(--muted);
+      font-size: 0.9rem;
+      font-weight: 700;
+      cursor: pointer;
+      transition: all 0.15s;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .btn-speed.active {
+      border-color: var(--accent);
+      color: var(--accent);
+      background: rgba(255,215,0,0.1);
+    }
+
+    /* ============================================================
+       INSTRUCTIONS
+    ============================================================ */
+    .instructions {
+      background: var(--surface);
+      border-radius: var(--radius);
+      padding: 20px 24px;
+      color: var(--muted);
+      font-size: 0.95rem;
+    }
+    .instructions h2 {
+      color: var(--text);
+      font-size: 1.05rem;
+      margin-bottom: 10px;
+    }
+    .instructions ol {
+      padding-left: 20px;
+    }
+    .instructions li {
+      margin-bottom: 8px;
+    }
+
+    /* ============================================================
+       RESPONSIVE
+    ============================================================ */
+    @media (max-width: 380px) {
+      .logo { font-size: 2.2rem; }
+      .btn-capture { width: 160px; height: 160px; }
+      .btn-capture .cam-icon { font-size: 2.4rem; }
+    }
+  </style>
+</head>
+<body>
+
+<div class="app">
+
+  <!-- HEADER -->
+  <header>
+    <div class="logo">LIPOURMOI</div>
+    <div class="tagline">Votre lecteur de presse intelligent</div>
+  </header>
+
+  <!-- STATUS -->
+  <div class="status-card" id="status-card">
+    <div class="status-icon" id="status-icon">📰</div>
+    <div class="status-text" id="status-text">Prêt à lire votre journal</div>
+    <div class="spinner" id="spinner"></div>
+    <div class="progress-bar-wrap" id="progress-wrap">
+      <div class="progress-bar" id="progress-bar"></div>
+    </div>
+  </div>
+
+  <!-- TEXT DISPLAY -->
+  <div class="text-box" id="text-box"></div>
+
+  <!-- CAPTURE BUTTON -->
+  <div class="capture-area">
+    <button class="btn-capture" id="btn-capture" aria-label="Prendre une photo du journal">
+      <span class="cam-icon">📷</span>
+      <span>PHOTOGRAPHIER<br>L'ARTICLE</span>
+    </button>
+    <input type="file" id="file-input" accept="image/*" capture="environment" />
+  </div>
+
+  <!-- CONTROLS (pause, stop, replay, speed) -->
+  <div class="controls" id="controls">
+    <button class="btn btn-pause" id="btn-pause" aria-label="Pause ou reprise">
+      ⏸ Pause
+    </button>
+    <button class="btn btn-stop" id="btn-stop" aria-label="Arrêter la lecture">
+      ⏹ Arrêter
+    </button>
+    <button class="btn btn-replay" id="btn-replay" aria-label="Relire depuis le début">
+      🔁 Relire
+    </button>
+
+    <div class="speed-row">
+      <span class="speed-label">Vitesse :</span>
+      <div class="speed-btns" id="speed-btns">
+        <button class="btn-speed" data-rate="0.7">Lent</button>
+        <button class="btn-speed active" data-rate="1.0">Normal</button>
+        <button class="btn-speed" data-rate="1.4">Vite</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- INSTRUCTIONS -->
+  <div class="instructions" id="instructions">
+    <h2>Comment utiliser LIPOURMOI</h2>
+    <ol>
+      <li>Appuyez sur le bouton <strong>PHOTOGRAPHIER</strong></li>
+      <li>Placez votre appareil photo au-dessus de l'article</li>
+      <li>Prenez la photo</li>
+      <li>L'application analyse et lit le texte automatiquement</li>
+      <li>Utilisez les boutons pour <strong>Pause</strong>, <strong>Arrêter</strong> ou <strong>Relire</strong></li>
+    </ol>
+  </div>
+
+</div><!-- /app -->
+
+<script>
+// ================================================================
+//  LIPOURMOI — logique principale
+// ================================================================
+
+const btnCapture = document.getElementById('btn-capture');
+const fileInput  = document.getElementById('file-input');
+const statusCard = document.getElementById('status-card');
+const statusIcon = document.getElementById('status-icon');
+const statusText = document.getElementById('status-text');
+const spinner    = document.getElementById('spinner');
+const progressWrap = document.getElementById('progress-wrap');
+const progressBar  = document.getElementById('progress-bar');
+const textBox    = document.getElementById('text-box');
+const controls   = document.getElementById('controls');
+const btnPause   = document.getElementById('btn-pause');
+const btnStop    = document.getElementById('btn-stop');
+const btnReplay  = document.getElementById('btn-replay');
+const instructions = document.getElementById('instructions');
+
+let extractedText = '';
+let speechRate    = 1.0;
+let isPaused      = false;
+let utterance     = null;
+let wordSpans     = [];
+let currentWordIndex = 0;
+
+// ----------------------------------------------------------------
+// Synthèse vocale
+// ----------------------------------------------------------------
+const synth = window.speechSynthesis;
+
+function getVoiceFR() {
+  const voices = synth.getVoices();
+  return (
+    voices.find(v => v.lang.startsWith('fr') && v.localService) ||
+    voices.find(v => v.lang.startsWith('fr')) ||
+    voices[0]
+  );
+}
+// Charger les voix (asynchrone sur certains navigateurs)
+if (synth.onvoiceschanged !== undefined) {
+  synth.onvoiceschanged = () => {};
+}
+
+// ----------------------------------------------------------------
+// État visuel
+// ----------------------------------------------------------------
+function setStatus(icon, text, state) {
+  statusIcon.textContent = icon;
+  statusText.textContent = text;
+  statusCard.className = 'status-card' + (state ? ' ' + state : '');
+  spinner.classList.toggle('active', state === 'processing');
+  progressWrap.classList.toggle('active', state === 'processing');
+}
+
+// ----------------------------------------------------------------
+// Annonce vocale rapide
+// ----------------------------------------------------------------
+function announce(msg) {
+  synth.cancel();
+  const a = new SpeechSynthesisUtterance(msg);
+  a.lang = 'fr-FR';
+  a.rate = speechRate;
+  const v = getVoiceFR();
+  if (v) a.voice = v;
+  synth.speak(a);
+}
+
+// ----------------------------------------------------------------
+// OCR avec Tesseract.js
+// ----------------------------------------------------------------
+async function runOCR(imageFile) {
+  setStatus('', 'Analyse du texte en cours…', 'processing');
+  progressBar.style.width = '0%';
+  textBox.classList.remove('visible');
+  controls.classList.remove('visible');
+  instructions.style.display = 'none';
+
+  announce('Photo reçue. Analyse en cours, veuillez patienter.');
+
+  try {
+    const result = await Tesseract.recognize(imageFile, 'fra', {
+      logger: m => {
+        if (m.status === 'recognizing text') {
+          const pct = Math.round((m.progress || 0) * 100);
+          progressBar.style.width = pct + '%';
+          statusText.textContent = `Analyse… ${pct}%`;
+        }
+      }
+    });
+
+    const text = (result.data.text || '').trim();
+
+    if (!text || text.length < 10) {
+      setStatus('⚠️', 'Texte non reconnu. Réessayez avec une meilleure lumière.', 'error');
+      announce('Je n\'ai pas pu lire le texte. Vérifiez la luminosité et recommencez.');
+      btnCapture.style.display = '';
+      return;
+    }
+
+    extractedText = text;
+    showAndRead(text);
+
+  } catch (err) {
+    console.error(err);
+    setStatus('❌', 'Erreur lors de l\'analyse. Réessayez.', 'error');
+    announce('Une erreur est survenue. Veuillez réessayer.');
+    btnCapture.style.display = '';
+  }
+}
+
+// ----------------------------------------------------------------
+// Affichage du texte et lecture
+// ----------------------------------------------------------------
+function buildWordSpans(text) {
+  textBox.innerHTML = '';
+  wordSpans = [];
+  currentWordIndex = 0;
+
+  // Découper en phrases pour une meilleure présentation
+  const sentences = text.replace(/\n+/g, ' ').split(/(?<=[.!?])\s+/);
+
+  sentences.forEach(sentence => {
+    if (!sentence.trim()) return;
+    const p = document.createElement('p');
+    const words = sentence.split(/\s+/);
+    words.forEach((word, i) => {
+      if (!word) return;
+      const span = document.createElement('span');
+      span.textContent = word + ' ';
+      span.dataset.index = wordSpans.length;
+      p.appendChild(span);
+      wordSpans.push(span);
+    });
+    textBox.appendChild(p);
+  });
+}
+
+function highlightWord(index) {
+  wordSpans.forEach(s => s.classList.remove('word-highlight'));
+  if (wordSpans[index]) {
+    wordSpans[index].classList.add('word-highlight');
+    wordSpans[index].scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+}
+
+function showAndRead(text) {
+  buildWordSpans(text);
+  textBox.classList.add('visible');
+  controls.classList.add('visible');
+  setStatus('🔊', 'Lecture en cours…', 'reading');
+  speak(text);
+}
+
+function speak(text) {
+  synth.cancel();
+  isPaused = false;
+  btnPause.textContent = '⏸ Pause';
+  btnPause.setAttribute('aria-label', 'Mettre en pause');
+
+  utterance = new SpeechSynthesisUtterance(text);
+  utterance.lang = 'fr-FR';
+  utterance.rate = speechRate;
+  const v = getVoiceFR();
+  if (v) utterance.voice = v;
+
+  // Surligner les mots au fil de la lecture
+  utterance.onboundary = (e) => {
+    if (e.name === 'word') {
+      // Estimer l'index du mot courant
+      const spokenSoFar = text.substring(0, e.charIndex);
+      const idx = spokenSoFar.split(/\s+/).filter(Boolean).length;
+      currentWordIndex = idx;
+      highlightWord(idx);
+    }
+  };
+
+  utterance.onend = () => {
+    setStatus('✅', 'Lecture terminée', 'reading');
+    wordSpans.forEach(s => s.classList.remove('word-highlight'));
+    btnCapture.style.display = '';
+    announce('Lecture terminée. Appuyez sur le bouton pour lire un nouvel article.');
+  };
+
+  utterance.onerror = (e) => {
+    if (e.error !== 'interrupted') {
+      setStatus('❌', 'Erreur de lecture vocale', 'error');
+    }
+  };
+
+  synth.speak(utterance);
+  btnCapture.style.display = 'none';
+}
+
+// ----------------------------------------------------------------
+// Boutons de contrôle
+// ----------------------------------------------------------------
+btnPause.addEventListener('click', () => {
+  if (!synth.speaking && !synth.paused) return;
+
+  if (!isPaused) {
+    synth.pause();
+    isPaused = true;
+    btnPause.textContent = '▶ Reprendre';
+    btnPause.setAttribute('aria-label', 'Reprendre la lecture');
+    setStatus('⏸', 'Lecture en pause', 'reading');
+  } else {
+    synth.resume();
+    isPaused = false;
+    btnPause.textContent = '⏸ Pause';
+    btnPause.setAttribute('aria-label', 'Mettre en pause');
+    setStatus('🔊', 'Lecture en cours…', 'reading');
+  }
+});
+
+btnStop.addEventListener('click', () => {
+  synth.cancel();
+  isPaused = false;
+  btnPause.textContent = '⏸ Pause';
+  setStatus('⏹', 'Lecture arrêtée', '');
+  wordSpans.forEach(s => s.classList.remove('word-highlight'));
+  btnCapture.style.display = '';
+  controls.classList.remove('visible');
+  textBox.classList.remove('visible');
+  instructions.style.display = '';
+  extractedText = '';
+  announce('Lecture arrêtée. Prêt pour un nouvel article.');
+});
+
+btnReplay.addEventListener('click', () => {
+  if (!extractedText) return;
+  setStatus('🔊', 'Lecture en cours…', 'reading');
+  speak(extractedText);
+});
+
+// Speed buttons
+document.getElementById('speed-btns').addEventListener('click', e => {
+  const btn = e.target.closest('.btn-speed');
+  if (!btn) return;
+  speechRate = parseFloat(btn.dataset.rate);
+  document.querySelectorAll('.btn-speed').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  // Si lecture en cours, relancer avec nouvelle vitesse
+  if (synth.speaking && extractedText) {
+    speak(extractedText);
+  }
+});
+
+// ----------------------------------------------------------------
+// Capture photo
+// ----------------------------------------------------------------
+btnCapture.addEventListener('click', () => {
+  fileInput.click();
+});
+
+fileInput.addEventListener('change', (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  fileInput.value = ''; // reset pour permettre de reprendre la même photo
+  runOCR(file);
+});
+
+// ----------------------------------------------------------------
+// PWA Service Worker
+// ----------------------------------------------------------------
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('sw.js').catch(() => {});
+}
+
+// ----------------------------------------------------------------
+// Init
+// ----------------------------------------------------------------
+setStatus('📰', 'Prêt à lire votre journal', '');
+</script>
+
+</body>
+</html>
