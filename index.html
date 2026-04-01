@@ -465,33 +465,116 @@ function announce(msg) {
 }
 
 // ----------------------------------------------------------------
+// Prétraitement de l'image pour améliorer l'OCR
+// ----------------------------------------------------------------
+async function preprocessImage(imageFile) {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+
+      // Agrandir l'image pour meilleure précision OCR (min 2400px sur le grand côté)
+      const MAX = 2400;
+      const scale = img.width > img.height
+        ? Math.max(1, MAX / img.width)
+        : Math.max(1, MAX / img.height);
+      canvas.width  = Math.round(img.width  * scale);
+      canvas.height = Math.round(img.height * scale);
+
+      const ctx = canvas.getContext('2d');
+      // Fond blanc au cas où l'image aurait de la transparence
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+      // Pixel par pixel : niveaux de gris + boost de contraste fort
+      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const d = imageData.data;
+      for (let i = 0; i < d.length; i += 4) {
+        // Luminance perceptuelle
+        let gray = 0.299 * d[i] + 0.587 * d[i+1] + 0.114 * d[i+2];
+        // Boost contraste (facteur 1.8, pivot 128)
+        gray = Math.min(255, Math.max(0, (gray - 128) * 1.8 + 128));
+        // Binarisation douce : pousser vers blanc ou noir
+        gray = gray > 140 ? Math.min(255, gray * 1.1) : Math.max(0, gray * 0.7);
+        d[i] = d[i+1] = d[i+2] = gray;
+        // alpha inchangé
+      }
+      ctx.putImageData(imageData, 0, 0);
+
+      canvas.toBlob(blob => resolve(blob), 'image/png');
+      URL.revokeObjectURL(img.src);
+    };
+    img.src = URL.createObjectURL(imageFile);
+  });
+}
+
+// ----------------------------------------------------------------
+// Nettoyage du texte OCR (supprime le bruit de caractères)
+// ----------------------------------------------------------------
+function cleanOCRText(raw) {
+  return raw
+    .split('\n')
+    .map(line => line.trim())
+    // Supprimer les lignes avec trop peu de lettres réelles (bruit)
+    .filter(line => {
+      if (line.length === 0) return false;
+      const letters = (line.match(/[a-zA-ZÀ-ÿ]/g) || []).length;
+      return letters / line.length > 0.4; // au moins 40% de vraies lettres
+    })
+    // Supprimer les lignes très courtes (1-2 caractères isolés)
+    .filter(line => line.replace(/\s/g, '').length > 2)
+    .join(' ')
+    // Nettoyer les espaces multiples
+    .replace(/\s{2,}/g, ' ')
+    // Supprimer les suites de caractères spéciaux
+    .replace(/[|\\^~`_]{2,}/g, '')
+    .trim();
+}
+
+// ----------------------------------------------------------------
 // OCR avec Tesseract.js
 // ----------------------------------------------------------------
 async function runOCR(imageFile) {
-  setStatus('', 'Analyse du texte en cours…', 'processing');
-  progressBar.style.width = '0%';
+  setStatus('', 'Amélioration de la photo…', 'processing');
+  progressBar.style.width = '5%';
   textBox.classList.remove('visible');
   controls.classList.remove('visible');
   instructions.style.display = 'none';
 
-  announce('Photo reçue. Analyse en cours, veuillez patienter.');
+  announce('Photo reçue. Amélioration et analyse en cours, veuillez patienter.');
 
   try {
-    const result = await Tesseract.recognize(imageFile, 'fra', {
+    // Étape 1 : prétraitement
+    const processedBlob = await preprocessImage(imageFile);
+    progressBar.style.width = '15%';
+    statusText.textContent = 'Analyse du texte…';
+
+    // Étape 2 : OCR avec détection d'orientation automatique
+    const worker = await Tesseract.createWorker('fra', 1, {
       logger: m => {
         if (m.status === 'recognizing text') {
-          const pct = Math.round((m.progress || 0) * 100);
+          const pct = 15 + Math.round((m.progress || 0) * 80);
           progressBar.style.width = pct + '%';
           statusText.textContent = `Analyse… ${pct}%`;
         }
       }
     });
 
-    const text = (result.data.text || '').trim();
+    // PSM 1 = détection automatique de l'orientation + segmentation
+    await worker.setParameters({ tessedit_pageseg_mode: '1' });
 
-    if (!text || text.length < 10) {
-      setStatus('⚠️', 'Texte non reconnu. Réessayez avec une meilleure lumière.', 'error');
-      announce('Je n\'ai pas pu lire le texte. Vérifiez la luminosité et recommencez.');
+    const result = await worker.recognize(processedBlob);
+    await worker.terminate();
+
+    progressBar.style.width = '100%';
+
+    const rawText = (result.data.text || '').trim();
+    const text    = cleanOCRText(rawText);
+
+    if (!text || text.length < 15) {
+      setStatus('⚠️', 'Texte non reconnu. Essayez avec plus de lumière et tenez le téléphone bien droit.', 'error');
+      announce('Je n\'ai pas pu lire le texte. Assurez-vous d\'avoir beaucoup de lumière et que la photo soit nette.');
       btnCapture.style.display = '';
       return;
     }
