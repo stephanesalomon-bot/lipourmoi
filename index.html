@@ -295,6 +295,41 @@
       background: rgba(255,215,0,0.1);
     }
 
+    /* Sélecteur de voix */
+    .voice-row {
+      width: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    .voice-label {
+      color: var(--muted);
+      font-size: 0.95rem;
+    }
+    .voice-btns {
+      display: flex;
+      gap: 8px;
+    }
+    .btn-voice {
+      padding: 10px 18px;
+      border-radius: 12px;
+      border: 2px solid rgba(255,255,255,0.2);
+      background: var(--surface);
+      color: var(--muted);
+      font-size: 1rem;
+      font-weight: 700;
+      cursor: pointer;
+      transition: all 0.15s;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .btn-voice.active {
+      border-color: #cc88ff;
+      color: #cc88ff;
+      background: rgba(200,136,255,0.1);
+    }
+
     /* ============================================================
        INSTRUCTIONS
     ============================================================ */
@@ -379,6 +414,14 @@
         <button class="btn-speed" data-rate="1.4">Vite</button>
       </div>
     </div>
+
+    <div class="voice-row">
+      <span class="voice-label">Voix :</span>
+      <div class="voice-btns" id="voice-btns">
+        <button class="btn-voice active" data-gender="female">👩 Femme</button>
+        <button class="btn-voice" data-gender="male">👨 Homme</button>
+      </div>
+    </div>
   </div>
 
   <!-- INSTRUCTIONS -->
@@ -417,24 +460,54 @@ const instructions = document.getElementById('instructions');
 
 let extractedText = '';
 let speechRate    = 1.0;
+let voiceGender   = 'female';
 let isPaused      = false;
 let utterance     = null;
 let wordSpans     = [];
 let currentWordIndex = 0;
 
 // ----------------------------------------------------------------
-// Synthèse vocale
+// Synthèse vocale — sélection intelligente de voix
 // ----------------------------------------------------------------
 const synth = window.speechSynthesis;
 
-function getVoiceFR() {
-  const voices = synth.getVoices();
-  return (
-    voices.find(v => v.lang.startsWith('fr') && v.localService) ||
-    voices.find(v => v.lang.startsWith('fr')) ||
-    voices[0]
-  );
+// Indices de noms féminins/masculins connus pour les voix FR
+const FEMALE_HINTS = ['amelie','marie','elsa','sophie','julie','audrey','virginie',
+                      'lea','emma','celine','isabelle','hortense','female','féminin',
+                      'woman','enhanced fr-fr_2','fr-fr_2'];
+const MALE_HINTS   = ['thomas','pierre','nicolas','laurent','guillaume','remi',
+                      'yannick','antoine','paul','male','masculin','man',
+                      'enhanced fr-fr_1','fr-fr_1'];
+
+function scoreVoice(v, gender) {
+  let score = 0;
+  const name = (v.name || '').toLowerCase();
+  const lang = (v.lang || '').toLowerCase();
+
+  if (!lang.startsWith('fr')) return -999;
+
+  // Bonus qualité : voix "enhanced" ou "premium" d'Apple / Google
+  if (name.includes('enhanced') || name.includes('premium')) score += 10;
+  // Voix locales = généralement meilleures
+  if (v.localService) score += 3;
+  // Correspondance genre
+  const hints = gender === 'female' ? FEMALE_HINTS : MALE_HINTS;
+  if (hints.some(h => name.includes(h))) score += 20;
+  // Pénaliser le genre opposé
+  const opposite = gender === 'female' ? MALE_HINTS : FEMALE_HINTS;
+  if (opposite.some(h => name.includes(h))) score -= 15;
+
+  return score;
 }
+
+function getVoiceFR() {
+  const voices = synth.getVoices().filter(v => v.lang.startsWith('fr'));
+  if (!voices.length) return synth.getVoices()[0];
+  // Trier par score décroissant
+  const sorted = [...voices].sort((a, b) => scoreVoice(b, voiceGender) - scoreVoice(a, voiceGender));
+  return sorted[0];
+}
+
 // Charger les voix (asynchrone sur certains navigateurs)
 if (synth.onvoiceschanged !== undefined) {
   synth.onvoiceschanged = () => {};
@@ -640,8 +713,10 @@ function speak(text) {
   btnPause.setAttribute('aria-label', 'Mettre en pause');
 
   utterance = new SpeechSynthesisUtterance(text);
-  utterance.lang = 'fr-FR';
-  utterance.rate = speechRate;
+  utterance.lang  = 'fr-FR';
+  utterance.rate  = speechRate;
+  // Pitch légèrement différent selon le genre pour paraître moins robotique
+  utterance.pitch = voiceGender === 'female' ? 1.1 : 0.9;
   const v = getVoiceFR();
   if (v) utterance.voice = v;
 
@@ -721,10 +796,23 @@ document.getElementById('speed-btns').addEventListener('click', e => {
   speechRate = parseFloat(btn.dataset.rate);
   document.querySelectorAll('.btn-speed').forEach(b => b.classList.remove('active'));
   btn.classList.add('active');
-  // Si lecture en cours, relancer avec nouvelle vitesse
-  if (synth.speaking && extractedText) {
-    speak(extractedText);
-  }
+  if (synth.speaking && extractedText) speak(extractedText);
+});
+
+// Voice gender buttons
+document.getElementById('voice-btns').addEventListener('click', e => {
+  const btn = e.target.closest('.btn-voice');
+  if (!btn) return;
+  voiceGender = btn.dataset.gender;
+  document.querySelectorAll('.btn-voice').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  // Aperçu vocal immédiat
+  const preview = voiceGender === 'female'
+    ? 'Bonjour, je suis votre lectrice.'
+    : 'Bonjour, je suis votre lecteur.';
+  announce(preview);
+  // Si lecture en cours, relancer avec nouvelle voix
+  if (synth.speaking && extractedText) speak(extractedText);
 });
 
 // ----------------------------------------------------------------
